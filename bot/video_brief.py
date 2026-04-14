@@ -2,9 +2,11 @@
 (text idea OR reference video) before asking the LLM to produce a script/storyboard."""
 from __future__ import annotations
 
+import json
 import logging
 import os
-from dataclasses import dataclass
+import re
+from dataclasses import asdict, dataclass
 from typing import Awaitable, Callable, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -19,6 +21,7 @@ from telegram.ext import (
 
 # Conversation states
 (
+    MODE,
     SOURCE,
     WAIT_VIDEO,
     TOPIC,
@@ -28,7 +31,7 @@ from telegram.ext import (
     FORMAT,
     STYLE,
     AUDIENCE,
-) = range(9)
+) = range(10)
 
 # Callback-data sentinels
 SKIP = "__skip__"
@@ -37,6 +40,15 @@ SOURCE_TEXT = "__src_text__"
 SOURCE_VIDEO = "__src_video__"
 CONFIRM_YES = "__confirm_yes__"
 CONFIRM_EDIT = "__confirm_edit__"
+USE_TEMPLATE = "__use_template__"
+CREATE_TEMPLATE = "__create_template__"
+CREATE_NEW = "__create_new__"
+
+MEMORY_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "memory",
+)
+_JSON_BLOCK_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 
 PLATFORMS: list[tuple[str, str]] = [
     ("youtube_shorts", "YouTube Shorts"),
@@ -125,6 +137,18 @@ def _kb(rows: list[list[tuple[str, str]]]) -> InlineKeyboardMarkup:
     )
 
 
+def _mode_keyboard(has_template: bool) -> InlineKeyboardMarkup:
+    rows: list[list[tuple[str, str]]] = []
+    if has_template:
+        rows.append([("🗂 Использовать шаблон", USE_TEMPLATE)])
+        rows.append([("📝 Создать шаблон (перезаписать)", CREATE_TEMPLATE)])
+    else:
+        rows.append([("📝 Создать шаблон", CREATE_TEMPLATE)])
+    rows.append([("✨ Создать по новой", CREATE_NEW)])
+    rows.append([("❌ Отмена", CANCEL)])
+    return _kb(rows)
+
+
 def _source_keyboard() -> InlineKeyboardMarkup:
     return _kb([
         [("📝 Текстовая идея", SOURCE_TEXT)],
@@ -185,17 +209,113 @@ def _get_providers(context: ContextTypes.DEFAULT_TYPE) -> Optional[BriefProvider
     return context.bot_data.get("brief_providers")
 
 
+def _clear_brief_state(context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data.pop("video_brief", None)
+    context.user_data.pop("save_as_template", None)
+
+
+# --- template storage ---------------------------------------------------
+
+
+def _memory_path(user_id: int) -> str:
+    return os.path.join(MEMORY_DIR, f"{user_id}.md")
+
+
+def _has_template(user_id: int) -> bool:
+    return os.path.isfile(_memory_path(user_id))
+
+
+def _load_template(user_id: int) -> Optional[Brief]:
+    path = _memory_path(user_id)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        match = _JSON_BLOCK_RE.search(content)
+        if not match:
+            raise ValueError("no json block")
+        data = json.loads(match.group(1))
+        allowed = {f for f in Brief.__dataclass_fields__}
+        return Brief(**{k: v for k, v in data.items() if k in allowed})
+    except Exception:  # noqa: BLE001
+        logging.exception("failed to load brief template from %s", path)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return None
+
+
+def _save_template(user_id: int, brief: Brief) -> None:
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+    payload = asdict(brief)
+    # transcript is one-shot input, not part of a reusable template
+    payload["video_transcript"] = None
+    payload["source"] = "text"
+    body = (
+        "# Brief template\n\n"
+        "```json\n"
+        + json.dumps(payload, ensure_ascii=False)
+        + "\n```\n\n"
+        + _render_brief(brief)
+        + "\n"
+    )
+    with open(_memory_path(user_id), "w", encoding="utf-8") as f:
+        f.write(body)
+
+
 # --- entry / source branch ----------------------------------------------
 
 
 async def start_brief(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    _clear_brief_state(context)
     context.user_data["video_brief"] = Brief()
+    has_template = _has_template(update.effective_user.id)
     await update.message.reply_text(
-        "🎬 Создаём бриф для видео. С чего начнём?\n\n"
+        "🎬 Создаём бриф для видео. Создать *шаблон* или создать *по новой*?\n\n"
         "В любой момент отправь /cancel, чтобы отменить.",
-        reply_markup=_source_keyboard(),
+        reply_markup=_mode_keyboard(has_template),
+        parse_mode="Markdown",
     )
-    return SOURCE
+    return MODE
+
+
+async def on_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    user_id = update.effective_user.id
+
+    if data == CANCEL:
+        return await _cancel_via_callback(update, context)
+
+    if data == USE_TEMPLATE:
+        brief = _load_template(user_id)
+        if brief is None:
+            await query.edit_message_text(
+                "⚠️ Не удалось прочитать сохранённый шаблон — он повреждён и удалён.\n"
+                "Запусти /brief снова и создай шаблон заново."
+            )
+            _clear_brief_state(context)
+            return ConversationHandler.END
+        context.user_data["video_brief"] = brief
+        return await _finalize(update, context, from_callback=True)
+
+    if data == CREATE_TEMPLATE:
+        context.user_data["save_as_template"] = True
+        await query.edit_message_text(
+            "📝 Создаём новый шаблон. С чего начнём?",
+            reply_markup=_source_keyboard(),
+        )
+        return SOURCE
+
+    if data == CREATE_NEW:
+        await query.edit_message_text(
+            "✨ Одноразовый бриф. С чего начнём?",
+            reply_markup=_source_keyboard(),
+        )
+        return SOURCE
+
+    return MODE
 
 
 async def on_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -481,6 +601,14 @@ async def _finalize(
     summary = _render_brief(brief)
     reply_target = update.callback_query.message if from_callback else update.message
 
+    if context.user_data.get("save_as_template"):
+        try:
+            _save_template(update.effective_user.id, brief)
+            summary += "\n\n💾 Шаблон сохранён."
+        except OSError as e:
+            logging.exception("failed to save brief template")
+            summary += f"\n\n⚠️ Не удалось сохранить шаблон: {e}"
+
     await reply_target.reply_text(summary + "\n\n⏳ Генерирую сценарий...")
 
     providers = _get_providers(context)
@@ -488,7 +616,7 @@ async def _finalize(
         await reply_target.reply_text(
             "⚠️ LLM-провайдер не настроен. Бриф сохранён, сценарий не сгенерирован."
         )
-        context.user_data.pop("video_brief", None)
+        _clear_brief_state(context)
         return ConversationHandler.END
 
     system_prompt, user_prompt = build_script_prompt(brief)
@@ -497,13 +625,13 @@ async def _finalize(
     except Exception as e:  # noqa: BLE001
         logging.exception("Failed to generate video script")
         await reply_target.reply_text(f"⚠️ Ошибка генерации: {e}")
-        context.user_data.pop("video_brief", None)
+        _clear_brief_state(context)
         return ConversationHandler.END
 
     for chunk in _chunks(script, 3900):
         await reply_target.reply_text(chunk)
 
-    context.user_data.pop("video_brief", None)
+    _clear_brief_state(context)
     return ConversationHandler.END
 
 
@@ -516,13 +644,13 @@ def _chunks(text: str, size: int):
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data.pop("video_brief", None)
+    _clear_brief_state(context)
     await update.message.reply_text("Окей, отменил. Запусти /brief снова, когда будешь готов.")
     return ConversationHandler.END
 
 
 async def _cancel_via_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data.pop("video_brief", None)
+    _clear_brief_state(context)
     await update.callback_query.edit_message_text(
         "Окей, отменил. Запусти /brief снова, когда будешь готов."
     )
@@ -536,6 +664,7 @@ def build_video_conversation_handler() -> ConversationHandler:
     return ConversationHandler(
         entry_points=[CommandHandler("brief", start_brief)],
         states={
+            MODE: [CallbackQueryHandler(on_mode)],
             SOURCE: [CallbackQueryHandler(on_source)],
             WAIT_VIDEO: [
                 MessageHandler(

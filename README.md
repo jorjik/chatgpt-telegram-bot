@@ -24,7 +24,6 @@ A [Telegram bot](https://core.telegram.org/bots/api) that integrates with OpenAI
 - [x] Transcribe audio and video messages using Whisper (may require [ffmpeg](https://ffmpeg.org))
 - [x] Automatic conversation summary to avoid excessive token usage
 - [x] Track token usage per user - by [@AlexHTW](https://github.com/AlexHTW)
-- [x] Get personal token usage statistics via the `/stats` command - by [@AlexHTW](https://github.com/AlexHTW)
 - [x] User budgets and guest budgets - by [@AlexHTW](https://github.com/AlexHTW)
 - [x] Stream support
 - [x] GPT-4 support
@@ -167,6 +166,16 @@ Check out the [official API reference](https://platform.openai.com/docs/api-refe
 | `WORLDTIME_DEFAULT_TIMEZONE`      | Default timezone to use, i.e. `Europe/Rome` (required only for the `worldtimeapi` plugin, you can get TZ Identifiers from [here](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)) | -                                   |
 | `DUCKDUCKGO_SAFESEARCH`           | DuckDuckGo safe search (`on`, `off` or `moderate`) (optional, applies to `ddg_web_search` and `ddg_image_search`)                                                                               | `moderate`                          |
 | `DEEPL_API_KEY`                   | DeepL API key (required for the `deepl` plugin, you can get one [here](https://www.deepl.com/pro-api?cta=header-pro-api))                                                                       | -                                   |
+
+### Admin privileges (`ADMIN_USER_IDS`)
+
+Пользователи, чьи Telegram ID перечислены через запятую в переменной `ADMIN_USER_IDS`, получают в этом боте расширенные права:
+
+- **Полный доступ к боту без добавления в whitelist.** Админам не нужно быть в `ALLOWED_TELEGRAM_USER_IDS` — они считаются разрешёнными автоматически и могут пользоваться всеми командами (`/chat`, `/brief`, `/clips`, `/image`, `/tts`, `/reset`, `/resend`, а также свободным общением с моделью).
+- **Обход бюджетных ограничений.** На админов не распространяются лимиты `USER_BUDGETS`, `GUEST_BUDGET` и период `BUDGET_PERIOD` — они могут расходовать OpenAI/Anthropic API без учёта квот.
+- **Получение запросов на доступ от гостей.** Когда незнакомый пользователь обращается к боту в групповом чате и попадает в гостевой бюджет, уведомление уходит первому админу из списка `ADMIN_USER_IDS`.
+
+Отдельных админ-команд (ban, broadcast, управление пользователями) в боте нет — права сводятся к перечисленному выше. Если `ADMIN_USER_IDS=-` (значение по умолчанию), админов в системе нет.
 
 ### Video brief (`/brief`)
 
