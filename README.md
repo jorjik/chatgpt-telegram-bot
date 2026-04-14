@@ -42,6 +42,8 @@ A [Telegram bot](https://core.telegram.org/bots/api) that integrates with OpenAI
 - [x] (NEW!) Vision support [announced on November 6, 2023](https://platform.openai.com/docs/guides/vision) - by [@gilcu3](https://github.com/gilcu3)
 - [x] (NEW!) GPT-4o model support [announced on May 12, 2024](https://openai.com/index/hello-gpt-4o/) - by [@err09r](https://github.com/err09r)
 - [x] (NEW!) o1 and o1-mini model preliminary support
+- [x] (NEW!) Guided video-brief questionnaire via the `/brief` command — collects topic, platform, duration (platform-dependent presets), delivery format, style, audience, and can ingest a reference video (Whisper transcript → auto topic summary) as input
+- [x] (NEW!) Optional Anthropic (Claude) provider for `/brief` script generation via the `LLM_PROVIDER=anthropic` env var
 
 ## Additional features - help needed!
 If you'd like to help, check out the [issues](https://github.com/n3d1117/chatgpt-telegram-bot/issues) section and contribute!  
@@ -164,6 +166,33 @@ Check out the [official API reference](https://platform.openai.com/docs/api-refe
 | `WORLDTIME_DEFAULT_TIMEZONE`      | Default timezone to use, i.e. `Europe/Rome` (required only for the `worldtimeapi` plugin, you can get TZ Identifiers from [here](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)) | -                                   |
 | `DUCKDUCKGO_SAFESEARCH`           | DuckDuckGo safe search (`on`, `off` or `moderate`) (optional, applies to `ddg_web_search` and `ddg_image_search`)                                                                               | `moderate`                          |
 | `DEEPL_API_KEY`                   | DeepL API key (required for the `deepl` plugin, you can get one [here](https://www.deepl.com/pro-api?cta=header-pro-api))                                                                       | -                                   |
+
+### Video brief (`/brief`)
+
+The `/brief` command walks the user through a short questionnaire and then asks an LLM to produce a full video script (hook, scene-by-scene storyboard with timecodes, voice-over, CTA).
+
+Flow:
+
+1. **Source** — start from a text idea **or** upload a reference video (mp4 / video-note / video document).
+2. If a video is uploaded, the bot extracts audio via `pydub`, transcribes it with Whisper, auto-summarises the topic in 2–3 sentences, and asks you to confirm or edit it.
+3. **Platform** (YouTube Shorts / TikTok / Reels / YouTube long).
+4. **Duration** — inline presets that depend on the chosen platform (e.g. 15/30/60 s for Shorts, 3/5/10/20+ min for YouTube long).
+5. **Format** *(required, buttons)* — Educational / Entertainment / Talking / News-Review.
+6. **Style** *(optional, buttons)* — platform-specific style options + Skip.
+7. **Target audience** *(optional, free text)* — or Skip.
+
+Send `/cancel` at any point to abort.
+
+#### Environment variables
+
+| Variable              | Description                                                                                                                                                                          | Default value       |
+|-----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------|
+| `LLM_PROVIDER`        | Which provider generates the topic summary and final script for `/brief`. Set to `anthropic` to use Claude; any other value uses OpenAI. Transcription always uses OpenAI Whisper.   | `openai`            |
+| `ANTHROPIC_API_KEY`   | Anthropic API key. Required when `LLM_PROVIDER=anthropic`; if missing, `/brief` falls back to OpenAI.                                                                                | -                   |
+| `ANTHROPIC_MODEL`     | Claude model to use for `/brief`.                                                                                                                                                    | `claude-sonnet-4-5` |
+| `ANTHROPIC_MAX_TOKENS`| Max tokens for Claude responses.                                                                                                                                                     | `4096`              |
+
+The regular chat (`/chat`, free-form messages, `/image`, `/tts`, transcription, vision) continues to use OpenAI regardless of `LLM_PROVIDER`.
 
 ### Installing
 Clone the repository and navigate to the project directory:

@@ -22,6 +22,7 @@ from utils import is_group_chat, get_thread_id, message_text, wrap_with_indicato
     cleanup_intermediate_files
 from openai_helper import OpenAIHelper, localized_text
 from usage_tracker import UsageTracker
+from video_brief import build_video_conversation_handler, BriefProviders
 
 
 class ChatGPTTelegramBot:
@@ -29,20 +30,24 @@ class ChatGPTTelegramBot:
     Class representing a ChatGPT Telegram Bot.
     """
 
-    def __init__(self, config: dict, openai: OpenAIHelper):
+    def __init__(self, config: dict, openai: OpenAIHelper, brief_providers: BriefProviders | None = None):
         """
         Initializes the bot with the given configuration and GPT bot object.
         :param config: A dictionary containing the bot configuration
         :param openai: OpenAIHelper object
+        :param brief_providers: Optional BriefProviders used by the /brief flow
+            (transcribe / summarize_topic / script).
         """
         self.config = config
         self.openai = openai
+        self.brief_providers = brief_providers
         bot_language = self.config['bot_language']
         self.commands = [
             BotCommand(command='help', description=localized_text('help_description', bot_language)),
             BotCommand(command='reset', description=localized_text('reset_description', bot_language)),
             BotCommand(command='stats', description=localized_text('stats_description', bot_language)),
-            BotCommand(command='resend', description=localized_text('resend_description', bot_language))
+            BotCommand(command='resend', description=localized_text('resend_description', bot_language)),
+            BotCommand(command='brief', description='Создать видео-бриф и получить сценарий'),
         ]
         # If imaging is enabled, add the "image" command to the list
         if self.config.get('enable_image_generation', False):
@@ -1055,6 +1060,8 @@ class ChatGPTTelegramBot:
             .concurrent_updates(True) \
             .build()
 
+        application.bot_data['brief_providers'] = self.brief_providers
+        application.add_handler(build_video_conversation_handler())
         application.add_handler(CommandHandler('reset', self.reset))
         application.add_handler(CommandHandler('help', self.help))
         application.add_handler(CommandHandler('image', self.image))

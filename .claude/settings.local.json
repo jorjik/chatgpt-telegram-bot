@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile bot/video_brief.py bot/anthropic_helper.py bot/main.py bot/telegram_bot.py)",
+      "Bash(python -m py_compile bot/video_brief.py bot/telegram_bot.py)",
+      "Bash(python -m py_compile bot/video_brief.py bot/main.py bot/telegram_bot.py bot/anthropic_helper.py)"
+    ]
+  }
+}

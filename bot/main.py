@@ -2,10 +2,92 @@ import logging
 import os
 
 from dotenv import load_dotenv
+from pydub import AudioSegment
 
 from plugin_manager import PluginManager
 from openai_helper import OpenAIHelper, default_max_tokens, are_functions_available
 from telegram_bot import ChatGPTTelegramBot
+from video_brief import BriefProviders
+
+
+SUMMARIZE_SYSTEM_PROMPT = (
+    "Ты помогаешь сценаристу. По транскрипту видео кратко сформулируй тему/идею "
+    "ролика в 2–3 предложениях по-русски. Без преамбул и списков — связный текст."
+)
+
+
+def _build_text_provider(openai_helper: OpenAIHelper):
+    """(system, user) -> str, выбирается по env LLM_PROVIDER."""
+    provider = os.environ.get('LLM_PROVIDER', 'openai').lower()
+
+    if provider == 'anthropic':
+        api_key = os.environ.get('ANTHROPIC_API_KEY')
+        if not api_key:
+            logging.warning(
+                'LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is missing; '
+                'falling back to OpenAI for /brief text generation.'
+            )
+        else:
+            from anthropic_helper import AnthropicConfig, AnthropicHelper
+            helper = AnthropicHelper(AnthropicConfig(
+                api_key=api_key,
+                model=os.environ.get('ANTHROPIC_MODEL', 'claude-sonnet-4-5'),
+                max_tokens=int(os.environ.get('ANTHROPIC_MAX_TOKENS', '4096')),
+            ))
+
+            async def anthropic_provider(system: str, user: str) -> str:
+                return await helper.generate(system, user)
+
+            return anthropic_provider
+
+    async def openai_provider(system: str, user: str) -> str:
+        response = await openai_helper.client.chat.completions.create(
+            model=openai_helper.config['model'],
+            messages=[
+                {'role': 'system', 'content': system},
+                {'role': 'user', 'content': user},
+            ],
+            max_tokens=openai_helper.config.get('max_tokens', 4096),
+            temperature=openai_helper.config.get('temperature', 1.0),
+        )
+        return response.choices[0].message.content.strip()
+
+    return openai_provider
+
+
+def _build_brief_providers(openai_helper: OpenAIHelper) -> BriefProviders:
+    """Assemble BriefProviders: Whisper transcription + LLM summarize + LLM script."""
+    text_provider = _build_text_provider(openai_helper)
+
+    async def transcribe(ctx, attachment) -> str:
+        raw_path = f"{attachment.file_unique_id}.bin"
+        mp3_path = f"{attachment.file_unique_id}.mp3"
+        try:
+            media_file = await ctx.bot.get_file(attachment.file_id)
+            await media_file.download_to_drive(raw_path)
+            audio = AudioSegment.from_file(raw_path)
+            audio.export(mp3_path, format="mp3")
+            return await openai_helper.transcribe(mp3_path)
+        finally:
+            for p in (raw_path, mp3_path):
+                try:
+                    if os.path.exists(p):
+                        os.remove(p)
+                except OSError:
+                    logging.warning("Failed to clean up %s", p)
+
+    async def summarize_topic(transcript: str) -> str:
+        snippet = transcript.strip()[:6000]
+        return await text_provider(
+            SUMMARIZE_SYSTEM_PROMPT,
+            f"Транскрипт видео:\n{snippet}",
+        )
+
+    return BriefProviders(
+        transcribe=transcribe,
+        summarize_topic=summarize_topic,
+        script=text_provider,
+    )
 
 
 def main():
@@ -109,7 +191,12 @@ def main():
     # Setup and run ChatGPT and Telegram bot
     plugin_manager = PluginManager(config=plugin_config)
     openai_helper = OpenAIHelper(config=openai_config, plugin_manager=plugin_manager)
-    telegram_bot = ChatGPTTelegramBot(config=telegram_config, openai=openai_helper)
+    brief_providers = _build_brief_providers(openai_helper)
+    telegram_bot = ChatGPTTelegramBot(
+        config=telegram_config,
+        openai=openai_helper,
+        brief_providers=brief_providers,
+    )
     telegram_bot.run()
 
 
