@@ -44,6 +44,7 @@ A [Telegram bot](https://core.telegram.org/bots/api) that integrates with OpenAI
 - [x] (NEW!) o1 and o1-mini model preliminary support
 - [x] (NEW!) Guided video-brief questionnaire via the `/brief` command — collects topic, platform, duration (platform-dependent presets), delivery format, style, audience, and can ingest a reference video (Whisper transcript → auto topic summary) as input
 - [x] (NEW!) Optional Anthropic (Claude) provider for `/brief` script generation via the `LLM_PROVIDER=anthropic` env var
+- [x] (NEW!) Auto-clipping of long videos into vertical 9:16 shorts via `/clips` — Opus.pro-style highlight selection with Whisper + LLM, center-crop reframe, and burned-in subtitles
 
 ## Additional features - help needed!
 If you'd like to help, check out the [issues](https://github.com/n3d1117/chatgpt-telegram-bot/issues) section and contribute!  
@@ -193,6 +194,36 @@ Send `/cancel` at any point to abort.
 | `ANTHROPIC_MAX_TOKENS`| Max tokens for Claude responses.                                                                                                                                                     | `4096`              |
 
 The regular chat (`/chat`, free-form messages, `/image`, `/tts`, transcription, vision) continues to use OpenAI regardless of `LLM_PROVIDER`.
+
+### Auto-clips from long videos (`/clips`)
+
+The `/clips` command turns a long video (podcast, lecture, stream, interview) into several vertical 9:16 short clips with burned-in captions — similar to opus.pro, fully inside Telegram.
+
+Flow:
+
+1. **Source** — paste a URL (YouTube / Vimeo / direct mp4, anything `yt-dlp` can fetch) **or** upload a video file up to 20 MB (Telegram Bot API hard limit; use URLs for long videos).
+2. **Platform** (buttons) — TikTok (30 s) / Instagram Reels (30 s) / YouTube Shorts (45 s). Determines the target clip length.
+3. **Count** (buttons) — 3 / 5 / 10 clips.
+4. The bot extracts audio, transcribes with Whisper (`verbose_json` with timestamps), asks the LLM (OpenAI or Anthropic, same `LLM_PROVIDER` env as `/brief`) to pick the best self-contained highlights, then for each highlight runs a single `ffmpeg` pass that cuts the range, center-crops to 9:16 @ 1080×1920, and burns SRT subtitles with a classic white + black-outline style.
+5. Finished clips are sent back one-by-one with title + hook + timecodes.
+
+Send `/cancel` at any point to abort; the temp workdir is cleaned up.
+
+#### System dependencies
+
+Both binaries must be available on `PATH`:
+
+- `ffmpeg` (already required transitively by `pydub` for `/brief`, but `/clips` depends on it explicitly for cutting/reframing/subtitles)
+- `yt-dlp` — for downloading from URLs. Installed via `requirements.txt` as a Python package that also exposes the `yt-dlp` CLI.
+
+On Ubuntu/Debian: `apt install ffmpeg`. On macOS: `brew install ffmpeg`. On Windows: grab a static build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) and add it to `PATH`.
+
+#### Known limits (MVP)
+
+- No face-tracking auto-reframe — center-crop only. If the speaker stands to the side, they may be partially cropped.
+- 25 MB Whisper limit on the extracted audio — the bot downmixes to mono 16 kHz @ 64 kbps mp3, which covers ~30 min of source video. Longer videos may fail transcription.
+- Telegram Bot API 20 MB upload limit applies to file uploads; use URLs for anything longer than ~2–3 min HD.
+- Processing is inline (no job queue): while `/clips` is running, the bot still handles other messages, but the clipping itself may take several minutes.
 
 ### Installing
 Clone the repository and navigate to the project directory:

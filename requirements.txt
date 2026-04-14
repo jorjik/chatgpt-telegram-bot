@@ -1,6 +1,7 @@
 python-dotenv~=1.0.0
 pydub~=0.25.1
-tiktoken==0.7.0
+audioop-lts>=0.2.1; python_version>="3.13"
+tiktoken>=0.8.0
 openai==1.58.1
 anthropic>=0.39.0
 python-telegram-bot==21.9
@@ -13,3 +14,4 @@ pytube~=15.0.0
 gtts~=2.5.4
 whois~=0.9.27
 Pillow~=11.0.0
+yt-dlp>=2024.10.7

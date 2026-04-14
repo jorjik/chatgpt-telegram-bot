@@ -23,6 +23,7 @@ from utils import is_group_chat, get_thread_id, message_text, wrap_with_indicato
 from openai_helper import OpenAIHelper, localized_text
 from usage_tracker import UsageTracker
 from video_brief import build_video_conversation_handler, BriefProviders
+from video_clipper import build_clipper_conversation_handler, ClipperProviders
 
 
 class ChatGPTTelegramBot:
@@ -30,7 +31,13 @@ class ChatGPTTelegramBot:
     Class representing a ChatGPT Telegram Bot.
     """
 
-    def __init__(self, config: dict, openai: OpenAIHelper, brief_providers: BriefProviders | None = None):
+    def __init__(
+        self,
+        config: dict,
+        openai: OpenAIHelper,
+        brief_providers: BriefProviders | None = None,
+        clipper_providers: ClipperProviders | None = None,
+    ):
         """
         Initializes the bot with the given configuration and GPT bot object.
         :param config: A dictionary containing the bot configuration
@@ -41,6 +48,7 @@ class ChatGPTTelegramBot:
         self.config = config
         self.openai = openai
         self.brief_providers = brief_providers
+        self.clipper_providers = clipper_providers
         bot_language = self.config['bot_language']
         self.commands = [
             BotCommand(command='help', description=localized_text('help_description', bot_language)),
@@ -48,6 +56,7 @@ class ChatGPTTelegramBot:
             BotCommand(command='stats', description=localized_text('stats_description', bot_language)),
             BotCommand(command='resend', description=localized_text('resend_description', bot_language)),
             BotCommand(command='brief', description='Создать видео-бриф и получить сценарий'),
+            BotCommand(command='clips', description='Нарезать длинное видео на шорты 9:16'),
         ]
         # If imaging is enabled, add the "image" command to the list
         if self.config.get('enable_image_generation', False):
@@ -1061,7 +1070,9 @@ class ChatGPTTelegramBot:
             .build()
 
         application.bot_data['brief_providers'] = self.brief_providers
+        application.bot_data['clipper_providers'] = self.clipper_providers
         application.add_handler(build_video_conversation_handler())
+        application.add_handler(build_clipper_conversation_handler())
         application.add_handler(CommandHandler('reset', self.reset))
         application.add_handler(CommandHandler('help', self.help))
         application.add_handler(CommandHandler('image', self.image))

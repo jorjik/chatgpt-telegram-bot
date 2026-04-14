@@ -8,6 +8,9 @@ from plugin_manager import PluginManager
 from openai_helper import OpenAIHelper, default_max_tokens, are_functions_available
 from telegram_bot import ChatGPTTelegramBot
 from video_brief import BriefProviders
+from video_clipper import ClipperProviders
+from clip_engine import Segment
+from pathlib import Path
 
 
 SUMMARIZE_SYSTEM_PROMPT = (
@@ -87,6 +90,41 @@ def _build_brief_providers(openai_helper: OpenAIHelper) -> BriefProviders:
         transcribe=transcribe,
         summarize_topic=summarize_topic,
         script=text_provider,
+    )
+
+
+def _build_clipper_providers(openai_helper: OpenAIHelper) -> ClipperProviders:
+    """Transcription with word-level timestamps + LLM for highlight picking."""
+    text_provider = _build_text_provider(openai_helper)
+
+    async def transcribe_segments(audio_path: Path) -> list[Segment]:
+        with open(audio_path, "rb") as audio:
+            result = await openai_helper.client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio,
+                response_format="verbose_json",
+                prompt=openai_helper.config.get("whisper_prompt", ""),
+            )
+        raw_segments = getattr(result, "segments", None) or []
+        segments: list[Segment] = []
+        for seg in raw_segments:
+            start = getattr(seg, "start", None) if not isinstance(seg, dict) else seg.get("start")
+            end = getattr(seg, "end", None) if not isinstance(seg, dict) else seg.get("end")
+            text = getattr(seg, "text", None) if not isinstance(seg, dict) else seg.get("text")
+            if start is None or end is None or not text:
+                continue
+            segments.append(Segment(start=float(start), end=float(end), text=str(text)))
+        return segments
+
+    async def download_attachment(ctx, attachment, target: Path) -> Path:
+        media_file = await ctx.bot.get_file(attachment.file_id)
+        await media_file.download_to_drive(str(target))
+        return target
+
+    return ClipperProviders(
+        transcribe=transcribe_segments,
+        llm=text_provider,
+        download_attachment=download_attachment,
     )
 
 
@@ -192,10 +230,12 @@ def main():
     plugin_manager = PluginManager(config=plugin_config)
     openai_helper = OpenAIHelper(config=openai_config, plugin_manager=plugin_manager)
     brief_providers = _build_brief_providers(openai_helper)
+    clipper_providers = _build_clipper_providers(openai_helper)
     telegram_bot = ChatGPTTelegramBot(
         config=telegram_config,
         openai=openai_helper,
         brief_providers=brief_providers,
+        clipper_providers=clipper_providers,
     )
     telegram_bot.run()
 

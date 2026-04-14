@@ -3,7 +3,13 @@
     "allow": [
       "Bash(python -m py_compile bot/video_brief.py bot/anthropic_helper.py bot/main.py bot/telegram_bot.py)",
       "Bash(python -m py_compile bot/video_brief.py bot/telegram_bot.py)",
-      "Bash(python -m py_compile bot/video_brief.py bot/main.py bot/telegram_bot.py bot/anthropic_helper.py)"
+      "Bash(python -m py_compile bot/video_brief.py bot/main.py bot/telegram_bot.py bot/anthropic_helper.py)",
+      "Bash(python -m py_compile bot/clip_engine.py bot/video_clipper.py bot/main.py bot/telegram_bot.py)",
+      "Bash(ffmpeg -version)",
+      "Bash(yt-dlp --version)",
+      "Bash(ls .env*)",
+      "Bash(ls .env.example)",
+      "Bash(pip --version)"
     ]
   }
 }
