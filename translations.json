@@ -650,7 +650,7 @@
         "chat_description":"Общайся с ботом!",
         "disallowed":"Извини, тебе запрещено использовать этого бота. Исходный код можно найти здесь https://github.com/n3d1117/chatgpt-telegram-bot",
         "budget_limit":"Извини, ты достиг предела использования",
-        "help_text":["Я бот ChatGPT, поговори со мной!", "Открытый исходный код на https://github.com/n3d1117/chatgpt-telegram-bot"],
+        "help_text":["Я бот ChatGPT, поговори со мной!", ""],
         "stats_conversation":["Текущий разговор", "сообщения в истории", "токены чата в истории"],
         "usage_today":"Использование сегодня",
         "usage_month":"Использование в этом месяце",
