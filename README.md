@@ -5,7 +5,7 @@
 [![license](https://img.shields.io/badge/License-GPL%202.0-brightgreen.svg)](LICENSE)
 [![Publish Docker image](https://github.com/n3d1117/chatgpt-telegram-bot/actions/workflows/publish.yaml/badge.svg)](https://github.com/n3d1117/chatgpt-telegram-bot/actions/workflows/publish.yaml)
 
-A [Telegram bot](https://core.telegram.org/bots/api) that integrates with OpenAI's _official_ [ChatGPT](https://openai.com/blog/chatgpt/) and [Whisper](https://openai.com/research/whisper) APIs to provide answers. Ready to use with minimal configuration required.
+A [Telegram bot](https://core.telegram.org/bots/api) that integrates with OpenAI's _official_ [ChatGPT](https://openai.com/blog/chatgpt/) APIs and Whisper-based transcription (OpenAI or Groq) to provide answers. Ready to use with minimal configuration required.
 
 ## Screenshots
 
@@ -214,7 +214,7 @@ Send `/cancel` at any point to abort.
 | `ANTHROPIC_MODEL`     | Claude model to use for `/brief`.                                                                                                                                                    | `claude-sonnet-4-5` |
 | `ANTHROPIC_MAX_TOKENS`| Max tokens for Claude responses.                                                                                                                                                     | `4096`              |
 
-The regular chat (`/chat`, free-form messages, transcription, vision) continues to use OpenAI regardless of `LLM_PROVIDER`.
+`LLM_PROVIDER` affects only `/brief` and `/clips` text generation. Regular chat and vision continue to use OpenAI models configured via `OPENAI_MODEL`/`VISION_MODEL`, while transcription follows `TRANSCRIPTION_PROVIDER`.
 
 ### Transcription (`/transcribe`)
 

@@ -20,12 +20,20 @@ TELEGRAM_BOT_TOKEN=...
 OPENAI_API_KEY=...
 ```
 
-Опционально — для `/brief` и `/clips` на Claude вместо OpenAI (транскрипция всё равно идёт через Whisper):
+Опционально — для `/brief` и `/clips` на Claude вместо OpenAI:
 
 ```
 LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=...
 ANTHROPIC_MODEL=claude-sonnet-4-5
+```
+
+Опционально — вынести транскрипцию в Groq Whisper:
+
+```
+TRANSCRIPTION_PROVIDER=groq
+GROQ_API_KEY=...
+TRANSCRIPTION_MODEL=whisper-large-v3-turbo
 ```
 
 ## Запуск
