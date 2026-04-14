@@ -8,11 +8,13 @@ Requires `ffmpeg` and `yt-dlp` available on PATH.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import logging
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,8 +68,7 @@ def is_url(source: str) -> bool:
 async def download_from_url(url: str, workdir: Path) -> Path:
     """Download video from URL using yt-dlp. Returns path to saved mp4."""
     output_template = str(workdir / "source.%(ext)s")
-    cmd = [
-        "yt-dlp",
+    cmd = _yt_dlp_cmd() + [
         "--no-playlist",
         "--no-warnings",
         "-f",
@@ -254,14 +255,11 @@ async def render_clip(
     highlight: Highlight,
     output_path: Path,
     workdir: Path,
+    burn_subtitles: bool = True,
 ) -> Path:
-    """Cut, reframe to 9:16 via center-crop, and burn subtitles in one ffmpeg pass."""
+    """Cut, reframe to 9:16 via center-crop, and optionally burn subtitles."""
     duration = highlight.end - highlight.start
     clip_segments = _segments_for_window(segments, highlight.start, highlight.end)
-
-    # Subtitles path must be escaped carefully for ffmpeg's filter syntax.
-    srt_path = workdir / f"{output_path.stem}.srt"
-    srt_path.write_text(build_srt(clip_segments), encoding="utf-8")
 
     vf_parts = [
         # 9:16 center-crop then scale to 1080x1920.
@@ -269,7 +267,9 @@ async def render_clip(
         "scale=1080:1920:force_original_aspect_ratio=decrease",
         "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
     ]
-    if clip_segments:
+    if burn_subtitles and clip_segments:
+        srt_path = workdir / f"{output_path.stem}.srt"
+        srt_path.write_text(build_srt(clip_segments), encoding="utf-8")
         escaped = _escape_ffmpeg_filter_path(str(srt_path))
         vf_parts.append(f"subtitles='{escaped}':force_style='{SUBTITLE_STYLE}'")
 
@@ -320,6 +320,7 @@ class ClipJobInput:
     source_video: Path
     count: int
     target_duration_sec: int
+    burn_subtitles: bool = True
 
 
 async def run_clip_job(
@@ -354,7 +355,14 @@ async def run_clip_job(
     for idx, highlight in enumerate(highlights, start=1):
         await _report(f"🎬 Рендерю клип {idx}/{len(highlights)}...")
         out_path = workdir / f"clip_{idx:02d}.mp4"
-        await render_clip(job.source_video, segments, highlight, out_path, workdir)
+        await render_clip(
+            job.source_video,
+            segments,
+            highlight,
+            out_path,
+            workdir,
+            burn_subtitles=job.burn_subtitles,
+        )
         results.append(ClipResult(path=out_path, highlight=highlight))
     return results
 
@@ -375,12 +383,25 @@ async def _run(cmd: list[str], label: str) -> None:
         raise RuntimeError(f"{label} failed (exit {proc.returncode}): {tail}")
 
 
+def _yt_dlp_cmd() -> list[str]:
+    """Prefer the yt-dlp CLI if on PATH; fall back to `python -m yt_dlp`."""
+    cli = shutil.which("yt-dlp")
+    if cli:
+        return [cli]
+    return [sys.executable, "-m", "yt_dlp"]
+
+
+def _yt_dlp_available() -> bool:
+    return shutil.which("yt-dlp") is not None or importlib.util.find_spec("yt_dlp") is not None
+
+
 def ensure_tools_available() -> list[str]:
     """Return list of missing binaries (ffmpeg, yt-dlp)."""
     missing: list[str] = []
-    for tool in ("ffmpeg", "yt-dlp"):
-        if shutil.which(tool) is None:
-            missing.append(tool)
+    if shutil.which("ffmpeg") is None:
+        missing.append("ffmpeg")
+    if not _yt_dlp_available():
+        missing.append("yt-dlp")
     return missing
 
 

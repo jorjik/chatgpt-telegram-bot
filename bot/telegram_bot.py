@@ -51,12 +51,12 @@ class ChatGPTTelegramBot:
         self.clipper_providers = clipper_providers
         bot_language = self.config['bot_language']
         self.commands = [
+            BotCommand(command='brief', description='Создать видео-бриф и получить сценарий'),
+            BotCommand(command='clips', description='Нарезать длинное видео на шорты 9:16'),
             BotCommand(command='help', description=localized_text('help_description', bot_language)),
             BotCommand(command='reset', description=localized_text('reset_description', bot_language)),
             BotCommand(command='stats', description=localized_text('stats_description', bot_language)),
             BotCommand(command='resend', description=localized_text('resend_description', bot_language)),
-            BotCommand(command='brief', description='Создать видео-бриф и получить сценарий'),
-            BotCommand(command='clips', description='Нарезать длинное видео на шорты 9:16'),
         ]
         # If imaging is enabled, add the "image" command to the list
         if self.config.get('enable_image_generation', False):
@@ -86,9 +86,7 @@ class ChatGPTTelegramBot:
                 '\n\n' +
                 '\n'.join(commands_description) +
                 '\n\n' +
-                localized_text('help_text', bot_language)[1] +
-                '\n\n' +
-                localized_text('help_text', bot_language)[2]
+                localized_text('help_text', bot_language)[1]
         )
         await update.message.reply_text(help_text, disable_web_page_preview=True)
 

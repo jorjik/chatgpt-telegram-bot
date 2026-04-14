@@ -41,11 +41,13 @@ logger = logging.getLogger(__name__)
 
 
 # Conversation states.
-SOURCE, WAIT_SOURCE, PLATFORM, COUNT = range(4)
+SOURCE, WAIT_SOURCE, PLATFORM, COUNT, SUBTITLES = range(5)
 
 CANCEL = "__cancel__"
 SOURCE_URL = "__src_url__"
 SOURCE_FILE = "__src_file__"
+SUBS_YES = "__subs_yes__"
+SUBS_NO = "__subs_no__"
 
 PLATFORMS: list[tuple[str, str, int]] = [
     ("tiktok", "TikTok (30s)", 30),
@@ -75,6 +77,7 @@ class ClipperState:
     platform_key: str = ""
     target_duration: int = 30
     count: int = 3
+    burn_subtitles: bool = True
     temp_paths: list[Path] = field(default_factory=list)
 
 
@@ -107,6 +110,16 @@ def _count_keyboard() -> InlineKeyboardMarkup:
     rows = [[(f"{n} клипов", str(n))] for n in COUNTS]
     rows.append([("❌ Отмена", CANCEL)])
     return _kb(rows)
+
+
+def _subtitles_keyboard() -> InlineKeyboardMarkup:
+    return _kb(
+        [
+            [("✅ Со субтитрами", SUBS_YES)],
+            [("🚫 Без субтитров", SUBS_NO)],
+            [("❌ Отмена", CANCEL)],
+        ]
+    )
 
 
 # --- state helpers ------------------------------------------------------
@@ -301,7 +314,24 @@ async def on_count_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     state.count = count
 
     await query.edit_message_text(
-        f"⏳ Готовлю {count} клипов по ~{state.target_duration}с. "
+        f"Клипов: {count}. Вжигать субтитры в видео?",
+        reply_markup=_subtitles_keyboard(),
+    )
+    return SUBTITLES
+
+
+async def on_subtitles_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    if query.data == CANCEL:
+        return await _cancel_via_callback(update, context)
+
+    state = _get_state(context)
+    state.burn_subtitles = query.data == SUBS_YES
+    subs_label = "с субтитрами" if state.burn_subtitles else "без субтитров"
+
+    await query.edit_message_text(
+        f"⏳ Готовлю {state.count} клипов по ~{state.target_duration}с ({subs_label}). "
         "Это займёт несколько минут."
     )
     return await _run_pipeline(update, context)
@@ -333,6 +363,7 @@ async def _run_pipeline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         source_video=state.source_video,
         count=state.count,
         target_duration_sec=state.target_duration,
+        burn_subtitles=state.burn_subtitles,
     )
 
     try:
@@ -413,6 +444,7 @@ def build_clipper_conversation_handler() -> ConversationHandler:
             ],
             PLATFORM: [CallbackQueryHandler(on_platform_chosen)],
             COUNT: [CallbackQueryHandler(on_count_chosen)],
+            SUBTITLES: [CallbackQueryHandler(on_subtitles_chosen)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         name="video_clipper",
