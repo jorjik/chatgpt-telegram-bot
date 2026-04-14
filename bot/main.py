@@ -98,13 +98,7 @@ def _build_clipper_providers(openai_helper: OpenAIHelper) -> ClipperProviders:
     text_provider = _build_text_provider(openai_helper)
 
     async def transcribe_segments(audio_path: Path) -> list[Segment]:
-        with open(audio_path, "rb") as audio:
-            result = await openai_helper.client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio,
-                response_format="verbose_json",
-                prompt=openai_helper.config.get("whisper_prompt", ""),
-            )
+        result = await openai_helper.transcribe_raw(str(audio_path), response_format="verbose_json")
         raw_segments = getattr(result, "segments", None) or []
         segments: list[Segment] = []
         for seg in raw_segments:
@@ -152,6 +146,10 @@ def main():
     max_tokens_default = default_max_tokens(model=model)
     openai_config = {
         'api_key': os.environ['OPENAI_API_KEY'],
+        'transcription_provider': os.environ.get('TRANSCRIPTION_PROVIDER', 'openai'),
+        'transcription_model': os.environ.get('TRANSCRIPTION_MODEL', 'whisper-1'),
+        'groq_api_key': os.environ.get('GROQ_API_KEY'),
+        'groq_base_url': os.environ.get('GROQ_BASE_URL', 'https://api.groq.com/openai/v1'),
         'show_usage': os.environ.get('SHOW_USAGE', 'false').lower() == 'true',
         'stream': os.environ.get('STREAM', 'true').lower() == 'true',
         'proxy': os.environ.get('PROXY', None) or os.environ.get('OPENAI_PROXY', None),

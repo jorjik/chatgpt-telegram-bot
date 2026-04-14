@@ -2,6 +2,7 @@ from __future__ import annotations
 import datetime
 import logging
 import os
+from typing import Optional
 
 import tiktoken
 
@@ -110,6 +111,28 @@ class OpenAIHelper:
         self.conversations: dict[int: list] = {}  # {chat_id: history}
         self.conversations_vision: dict[int: bool] = {}  # {chat_id: is_vision}
         self.last_updated: dict[int: datetime] = {}  # {chat_id: last_update_timestamp}
+
+        self.transcription_model = config.get('transcription_model', 'whisper-1')
+        self.transcription_provider = config.get('transcription_provider', 'openai').lower()
+        groq_api_key = config.get('groq_api_key')
+        groq_base_url = config.get('groq_base_url', 'https://api.groq.com/openai/v1')
+
+        if self.transcription_provider == 'groq' and groq_api_key:
+            transcription_http_client = httpx.AsyncClient(proxy=config['proxy']) if 'proxy' in config else None
+            self.transcription_client = openai.AsyncOpenAI(
+                api_key=groq_api_key,
+                base_url=groq_base_url,
+                http_client=transcription_http_client,
+            )
+            logging.info('Transcription provider: Groq (%s)', self.transcription_model)
+        else:
+            if self.transcription_provider == 'groq' and not groq_api_key:
+                logging.warning(
+                    'TRANSCRIPTION_PROVIDER=groq but GROQ_API_KEY is missing; '
+                    'falling back to OpenAI transcription.'
+                )
+            self.transcription_client = self.client
+            logging.info('Transcription provider: OpenAI (%s)', self.transcription_model)
 
     def get_conversation_stats(self, chat_id: int) -> tuple[int, int]:
         """
@@ -377,13 +400,26 @@ class OpenAIHelper:
         Transcribes the audio file using the Whisper model.
         """
         try:
-            with open(filename, "rb") as audio:
-                prompt_text = self.config['whisper_prompt']
-                result = await self.client.audio.transcriptions.create(model="whisper-1", file=audio, prompt=prompt_text)
-                return result.text
+            result = await self.transcribe_raw(filename)
+            return result.text
         except Exception as e:
             logging.exception(e)
             raise Exception(f"⚠️ _{localized_text('error', self.config['bot_language'])}._ ⚠️\n{str(e)}") from e
+
+    async def transcribe_raw(self, filename, response_format: Optional[str] = None):
+        """
+        Transcribes audio using configured provider/model and returns the raw response.
+        """
+        with open(filename, "rb") as audio:
+            prompt_text = self.config.get('whisper_prompt', '')
+            request_args = {
+                'model': self.transcription_model,
+                'file': audio,
+                'prompt': prompt_text,
+            }
+            if response_format:
+                request_args['response_format'] = response_format
+            return await self.transcription_client.audio.transcriptions.create(**request_args)
 
     @retry(
         reraise=True,
