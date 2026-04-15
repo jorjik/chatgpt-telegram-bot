@@ -143,8 +143,8 @@ class BriefProviders:
     transcribe: Optional[Callable[[ContextTypes.DEFAULT_TYPE, object], Awaitable[str]]]
     # (transcript) -> 2-3 sentence topic summary
     summarize_topic: Callable[[str], Awaitable[str]]
-    # (system_prompt, user_prompt) -> final script text
-    script: Callable[[str, str], Awaitable[str]]
+    # (system_prompt, user_prompt, user_id) -> final script text (with optional usage footer)
+    script: Callable[[str, str, Optional[int]], Awaitable[str]]
 
 
 # --- keyboards -----------------------------------------------------------
@@ -662,7 +662,7 @@ async def _finalize(
 
     system_prompt, user_prompt = build_script_prompt(brief)
     try:
-        script = await providers.script(system_prompt, user_prompt)
+        script = await providers.script(system_prompt, user_prompt, update.effective_user.id)
     except Exception as e:  # noqa: BLE001
         logging.exception("Failed to generate video script")
         await reply_target.reply_text(f"⚠️ Ошибка генерации: {e}")

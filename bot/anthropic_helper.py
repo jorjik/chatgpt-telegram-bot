@@ -28,7 +28,8 @@ class AnthropicHelper:
         self.config = config
         self._client = anthropic.AsyncAnthropic(api_key=config.api_key)
 
-    async def generate(self, system_prompt: str, user_prompt: str) -> str:
+    async def generate(self, system_prompt: str, user_prompt: str) -> tuple[str, int, int]:
+        """Return (text, prompt_tokens, completion_tokens)."""
         logging.info("Anthropic: generating response with model %s", self.config.model)
         response = await self._client.messages.create(
             model=self.config.model,
@@ -37,4 +38,7 @@ class AnthropicHelper:
             messages=[{"role": "user", "content": user_prompt}],
         )
         parts = [block.text for block in response.content if getattr(block, "type", None) == "text"]
-        return "\n".join(parts).strip()
+        usage = getattr(response, "usage", None)
+        prompt_tokens = getattr(usage, "input_tokens", 0) or 0
+        completion_tokens = getattr(usage, "output_tokens", 0) or 0
+        return "\n".join(parts).strip(), int(prompt_tokens), int(completion_tokens)

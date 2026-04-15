@@ -20,7 +20,7 @@ SUMMARIZE_SYSTEM_PROMPT = (
 
 
 def _build_text_provider(openai_helper: OpenAIHelper):
-    """(system, user) -> str, выбирается по env LLM_PROVIDER."""
+    """(system, user, user_id) -> str with optional usage footer. Provider picked via LLM_PROVIDER."""
     provider = os.environ.get('LLM_PROVIDER', 'openai').lower()
 
     if provider == 'anthropic':
@@ -38,12 +38,19 @@ def _build_text_provider(openai_helper: OpenAIHelper):
                 max_tokens=int(os.environ.get('ANTHROPIC_MAX_TOKENS', '4096')),
             ))
 
-            async def anthropic_provider(system: str, user: str) -> str:
-                return await helper.generate(system, user)
+            async def anthropic_provider(system: str, user: str, user_id: int | None = None) -> str:
+                text, p_tok, c_tok = await helper.generate(system, user)
+                footer = openai_helper._build_usage_footer(
+                    user_id=user_id,
+                    total_tokens=p_tok + c_tok,
+                    prompt_tokens=p_tok,
+                    completion_tokens=c_tok,
+                )
+                return text + footer
 
             return anthropic_provider
 
-    async def openai_provider(system: str, user: str) -> str:
+    async def openai_provider(system: str, user: str, user_id: int | None = None) -> str:
         response = await openai_helper.client.chat.completions.create(
             model=openai_helper.config['model'],
             messages=[
@@ -53,7 +60,18 @@ def _build_text_provider(openai_helper: OpenAIHelper):
             max_tokens=openai_helper.config.get('max_tokens', 4096),
             temperature=openai_helper.config.get('temperature', 1.0),
         )
-        return response.choices[0].message.content.strip()
+        text = response.choices[0].message.content.strip()
+        usage = getattr(response, 'usage', None)
+        p_tok = getattr(usage, 'prompt_tokens', 0) or 0
+        c_tok = getattr(usage, 'completion_tokens', 0) or 0
+        total = getattr(usage, 'total_tokens', p_tok + c_tok) or (p_tok + c_tok)
+        footer = openai_helper._build_usage_footer(
+            user_id=user_id,
+            total_tokens=total,
+            prompt_tokens=p_tok,
+            completion_tokens=c_tok,
+        )
+        return text + footer
 
     return openai_provider
 
