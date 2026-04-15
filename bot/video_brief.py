@@ -7,6 +7,7 @@ import logging
 import os
 import re
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -45,10 +46,27 @@ USE_TEMPLATE = "__use_template__"
 CREATE_TEMPLATE = "__create_template__"
 CREATE_NEW = "__create_new__"
 
-MEMORY_DIR = os.path.join(
+_DEFAULT_MEMORY_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "memory",
 )
+MEMORY_DIR = os.environ.get("BRIEF_MEMORY_DIR", _DEFAULT_MEMORY_DIR)
+
+
+def _ensure_memory_dir() -> str:
+    """Create MEMORY_DIR (and fall back to a writable temp dir if that fails)."""
+    global MEMORY_DIR
+    try:
+        Path(MEMORY_DIR).mkdir(parents=True, exist_ok=True)
+        return MEMORY_DIR
+    except OSError as e:
+        fallback = os.path.join("/tmp", "brief_memory")
+        logging.warning(
+            "cannot create %s (%s); falling back to %s", MEMORY_DIR, e, fallback
+        )
+        Path(fallback).mkdir(parents=True, exist_ok=True)
+        MEMORY_DIR = fallback
+        return MEMORY_DIR
 _JSON_BLOCK_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 
 PLATFORMS: list[tuple[str, str]] = [
@@ -247,7 +265,7 @@ def _load_template(user_id: int) -> Optional[Brief]:
 
 
 def _save_template(user_id: int, brief: Brief) -> None:
-    os.makedirs(MEMORY_DIR, exist_ok=True)
+    _ensure_memory_dir()
     payload = asdict(brief)
     # transcript is one-shot input, not part of a reusable template
     payload["video_transcript"] = None

@@ -10,5 +10,6 @@ RUN apk --no-cache add ffmpeg
 WORKDIR /app
 COPY . .
 RUN pip install -r requirements.txt --no-cache-dir
+RUN mkdir -p /app/memory && chmod 777 /app/memory
 
 CMD ["python", "bot/main.py"]
