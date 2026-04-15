@@ -15,7 +15,7 @@ from PIL import Image
 
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 
-from utils import is_direct_result, encode_image, decode_image
+from utils import is_direct_result, encode_image, decode_image, is_admin
 from plugin_manager import PluginManager
 
 # Models can be found here: https://platform.openai.com/docs/models/overview
@@ -134,6 +134,42 @@ class OpenAIHelper:
             self.transcription_client = self.client
             logging.info('Transcription provider: OpenAI (%s)', self.transcription_model)
 
+    def _build_usage_footer(
+        self,
+        user_id: Optional[int],
+        total_tokens,
+        prompt_tokens: Optional[int] = None,
+        completion_tokens: Optional[int] = None,
+        price_per_1k: Optional[float] = None,
+    ) -> str:
+        """
+        Build the tokens/cost footer appended to assistant replies.
+        Admins (ADMIN_USER_IDS) see tokens + cost. If SHOW_USAGE=true, all users
+        see the legacy tokens-only footer.
+        """
+        bot_language = self.config['bot_language']
+        admin = user_id is not None and is_admin(self.config, user_id)
+        if not admin and not self.config['show_usage']:
+            return ''
+
+        footer = (
+            f"\n\n---\n"
+            f"💰 {total_tokens} {localized_text('stats_tokens', bot_language)}"
+        )
+        if prompt_tokens is not None and completion_tokens is not None:
+            footer += (
+                f" ({prompt_tokens} {localized_text('prompt', bot_language)},"
+                f" {completion_tokens} {localized_text('completion', bot_language)})"
+            )
+        if admin:
+            rate = price_per_1k if price_per_1k is not None else self.config['token_price']
+            try:
+                cost = float(total_tokens) * float(rate) / 1000
+                footer += f" · ~${cost:.6f}"
+            except (TypeError, ValueError):
+                pass
+        return footer
+
     def get_conversation_stats(self, chat_id: int) -> tuple[int, int]:
         """
         Gets the number of messages and tokens used in the conversation.
@@ -144,7 +180,7 @@ class OpenAIHelper:
             self.reset_chat_history(chat_id)
         return len(self.conversations[chat_id]), self.__count_tokens(self.conversations[chat_id])
 
-    async def get_chat_response(self, chat_id: int, query: str) -> tuple[str, str]:
+    async def get_chat_response(self, chat_id: int, query: str, user_id: Optional[int] = None) -> tuple[str, str]:
         """
         Gets a full response from the GPT model.
         :param chat_id: The chat ID
@@ -172,14 +208,16 @@ class OpenAIHelper:
             answer = response.choices[0].message.content.strip()
             self.__add_to_history(chat_id, role="assistant", content=answer)
 
-        bot_language = self.config['bot_language']
         show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
         plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
-        if self.config['show_usage']:
-            answer += "\n\n---\n" \
-                      f"💰 {str(response.usage.total_tokens)} {localized_text('stats_tokens', bot_language)}" \
-                      f" ({str(response.usage.prompt_tokens)} {localized_text('prompt', bot_language)}," \
-                      f" {str(response.usage.completion_tokens)} {localized_text('completion', bot_language)})"
+        footer = self._build_usage_footer(
+            user_id,
+            response.usage.total_tokens,
+            response.usage.prompt_tokens,
+            response.usage.completion_tokens,
+        )
+        if footer:
+            answer += footer
             if show_plugins_used:
                 answer += f"\n🔌 {', '.join(plugin_names)}"
         elif show_plugins_used:
@@ -187,7 +225,7 @@ class OpenAIHelper:
 
         return answer, response.usage.total_tokens
 
-    async def get_chat_response_stream(self, chat_id: int, query: str):
+    async def get_chat_response_stream(self, chat_id: int, query: str, user_id: Optional[int] = None):
         """
         Stream response from the GPT model.
         :param chat_id: The chat ID
@@ -216,8 +254,9 @@ class OpenAIHelper:
 
         show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
         plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
-        if self.config['show_usage']:
-            answer += f"\n\n---\n💰 {tokens_used} {localized_text('stats_tokens', self.config['bot_language'])}"
+        footer = self._build_usage_footer(user_id, tokens_used)
+        if footer:
+            answer += footer
             if show_plugins_used:
                 answer += f"\n🔌 {', '.join(plugin_names)}"
         elif show_plugins_used:
@@ -504,7 +543,7 @@ class OpenAIHelper:
             raise Exception(f"⚠️ _{localized_text('error', bot_language)}._ ⚠️\n{str(e)}") from e
 
 
-    async def interpret_image(self, chat_id, fileobj, prompt=None):
+    async def interpret_image(self, chat_id, fileobj, prompt=None, user_id: Optional[int] = None):
         """
         Interprets a given PNG image file using the Vision model.
         """
@@ -539,23 +578,20 @@ class OpenAIHelper:
             answer = response.choices[0].message.content.strip()
             self.__add_to_history(chat_id, role="assistant", content=answer)
 
-        bot_language = self.config['bot_language']
         # Plugins are not enabled either
         # show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
         # plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
-        if self.config['show_usage']:
-            answer += "\n\n---\n" \
-                      f"💰 {str(response.usage.total_tokens)} {localized_text('stats_tokens', bot_language)}" \
-                      f" ({str(response.usage.prompt_tokens)} {localized_text('prompt', bot_language)}," \
-                      f" {str(response.usage.completion_tokens)} {localized_text('completion', bot_language)})"
-            # if show_plugins_used:
-            #     answer += f"\n🔌 {', '.join(plugin_names)}"
-        # elif show_plugins_used:
-        #     answer += f"\n\n---\n🔌 {', '.join(plugin_names)}"
+        answer += self._build_usage_footer(
+            user_id,
+            response.usage.total_tokens,
+            response.usage.prompt_tokens,
+            response.usage.completion_tokens,
+            price_per_1k=self.config['vision_token_price'],
+        )
 
         return answer, response.usage.total_tokens
 
-    async def interpret_image_stream(self, chat_id, fileobj, prompt=None):
+    async def interpret_image_stream(self, chat_id, fileobj, prompt=None, user_id: Optional[int] = None):
         """
         Interprets a given PNG image file using the Vision model.
         """
@@ -589,12 +625,11 @@ class OpenAIHelper:
 
         #show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
         #plugin_names = tuple(self.plugin_manager.get_plugin_source_name(plugin) for plugin in plugins_used)
-        if self.config['show_usage']:
-            answer += f"\n\n---\n💰 {tokens_used} {localized_text('stats_tokens', self.config['bot_language'])}"
-        #     if show_plugins_used:
-        #         answer += f"\n🔌 {', '.join(plugin_names)}"
-        # elif show_plugins_used:
-        #     answer += f"\n\n---\n🔌 {', '.join(plugin_names)}"
+        answer += self._build_usage_footer(
+            user_id,
+            tokens_used,
+            price_per_1k=self.config['vision_token_price'],
+        )
 
         yield answer, tokens_used
 
