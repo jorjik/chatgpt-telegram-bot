@@ -693,17 +693,47 @@ _MD_CODE_RE = re.compile(r"`([^`\n]+?)`")
 _MD_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
 _MD_BULLET_RE = re.compile(r"^(\s*)[-*]\s+", re.MULTILINE)
 
+_ALLOWED_TAG_RE = re.compile(
+    r"</?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|tg-spoiler)\b[^>]*>",
+    re.IGNORECASE,
+)
+
 
 def _script_to_html(text: str) -> str:
-    """Convert LLM output (mixed Markdown) to Telegram-safe HTML."""
-    # Escape raw HTML first, then reintroduce supported tags via regex.
-    safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    """Convert LLM output (mixed HTML/Markdown) to Telegram-safe HTML."""
+    # 1. Stash allowed HTML tags so they survive escaping.
+    placeholders: list[str] = []
+
+    def _stash(match: re.Match) -> str:
+        placeholders.append(match.group(0))
+        return f"\x00TAG{len(placeholders) - 1}\x00"
+
+    safe = _ALLOWED_TAG_RE.sub(_stash, text)
+
+    # 2. Escape everything else.
+    safe = safe.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    # 3. Convert Markdown fallbacks (in case LLM still used them).
     safe = _MD_CODE_RE.sub(r"<code>\1</code>", safe)
     safe = _MD_BOLD_RE.sub(r"<b>\1</b>", safe)
     safe = _MD_UNDERLINE_RE.sub(r"<u>\1</u>", safe)
     safe = _MD_ITALIC_RE.sub(r"<i>\1</i>", safe)
     safe = _MD_HEADING_RE.sub(r"<b>\1</b>", safe)
     safe = _MD_BULLET_RE.sub(r"\1• ", safe)
+
+    # 4. Restore stashed tags, normalising aliases Telegram doesn't accept.
+    def _restore(match: re.Match) -> str:
+        idx = int(match.group(1))
+        tag = placeholders[idx]
+        # Telegram supports <b>, <i>, <u>, <s>, <code>, <pre>, <tg-spoiler>.
+        # Map common aliases.
+        tag = re.sub(r"<(/?)strong\b", r"<\1b", tag, flags=re.IGNORECASE)
+        tag = re.sub(r"<(/?)em\b", r"<\1i", tag, flags=re.IGNORECASE)
+        tag = re.sub(r"<(/?)ins\b", r"<\1u", tag, flags=re.IGNORECASE)
+        tag = re.sub(r"<(/?)(?:strike|del)\b", r"<\1s", tag, flags=re.IGNORECASE)
+        return tag
+
+    safe = re.sub(r"\x00TAG(\d+)\x00", _restore, safe)
     return safe
 
 
