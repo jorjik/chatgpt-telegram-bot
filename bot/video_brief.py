@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass
 from typing import Awaitable, Callable, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ParseMode
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -568,10 +569,32 @@ def _render_brief(brief: Brief) -> str:
 
 def build_script_prompt(brief: Brief) -> tuple[str, str]:
     system_prompt = (
-        "Ты — опытный сценарист коротких и длинных видео. "
-        "По брифу собери подробный сценарий: hook/intro, раскадровку по сценам с таймкодами, "
-        "текст закадрового голоса или реплики, описание визуала и монтажных склеек, "
-        "заключительный CTA. Пиши на русском."
+        "Ты — опытный сценарист коротких и длинных видео. Пиши на русском.\n\n"
+        "Собери сценарий по брифу. Формат вывода — строго такой:\n\n"
+        "🎬 <b>Название</b>: короткое цепляющее название\n"
+        "🎯 <b>Идея</b>: 1 предложение о главной мысли ролика\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🎞 <b>СЦЕНА 1 · 0:00–0:05 · Hook</b>\n"
+        "🖼 <b>Визуал:</b> что в кадре, крупность, движение камеры\n"
+        "🎙 <b>Голос:</b> «точная реплика в кавычках»\n"
+        "✂️ <b>Склейка:</b> тип перехода в следующую сцену\n"
+        "📝 <b>Титры/текст:</b> если есть\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🎞 <b>СЦЕНА 2 · 0:05–0:15 · Основная мысль</b>\n"
+        "(тот же блок полей)\n\n"
+        "… и так до финала …\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "📣 <b>CTA · таймкод</b>\n"
+        "(тот же блок полей)\n\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "🏷 <b>Хэштеги:</b> 5–7 штук\n"
+        "🎵 <b>Звук/музыка:</b> рекомендация настроения или конкретного трека\n\n"
+        "Правила форматирования:\n"
+        "• Используй ТОЛЬКО HTML-теги Telegram: <b>, <i>, <u>, <code>.\n"
+        "• Не используй Markdown (никаких ** или ##).\n"
+        "• Таймкоды — в формате M:SS–M:SS.\n"
+        "• Реплики закадрового голоса всегда в кавычках «…».\n"
+        "• Не добавляй вступления и заключения от себя — только сценарий."
     )
     parts = [
         f"Тема: {brief.topic}",
@@ -628,8 +651,13 @@ async def _finalize(
         _clear_brief_state(context)
         return ConversationHandler.END
 
-    for chunk in _chunks(script, 3900):
-        await reply_target.reply_text(chunk)
+    formatted = _script_to_html(script)
+    for chunk in _chunks(formatted, 3900):
+        try:
+            await reply_target.reply_text(chunk, parse_mode=ParseMode.HTML)
+        except Exception:  # noqa: BLE001
+            logging.exception("failed to send script chunk as HTML, falling back to plain text")
+            await reply_target.reply_text(chunk)
 
     _clear_brief_state(context)
     return ConversationHandler.END
@@ -638,6 +666,27 @@ async def _finalize(
 def _chunks(text: str, size: int):
     for i in range(0, len(text), size):
         yield text[i : i + size]
+
+
+_MD_BOLD_RE = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+_MD_ITALIC_RE = re.compile(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", re.DOTALL)
+_MD_UNDERLINE_RE = re.compile(r"__(.+?)__", re.DOTALL)
+_MD_CODE_RE = re.compile(r"`([^`\n]+?)`")
+_MD_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
+_MD_BULLET_RE = re.compile(r"^(\s*)[-*]\s+", re.MULTILINE)
+
+
+def _script_to_html(text: str) -> str:
+    """Convert LLM output (mixed Markdown) to Telegram-safe HTML."""
+    # Escape raw HTML first, then reintroduce supported tags via regex.
+    safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    safe = _MD_CODE_RE.sub(r"<code>\1</code>", safe)
+    safe = _MD_BOLD_RE.sub(r"<b>\1</b>", safe)
+    safe = _MD_UNDERLINE_RE.sub(r"<u>\1</u>", safe)
+    safe = _MD_ITALIC_RE.sub(r"<i>\1</i>", safe)
+    safe = _MD_HEADING_RE.sub(r"<b>\1</b>", safe)
+    safe = _MD_BULLET_RE.sub(r"\1• ", safe)
+    return safe
 
 
 # --- cancel -------------------------------------------------------------
