@@ -8,3 +8,5 @@ venv
 /.cache
 /memory
 .claude/settings.local.json
+cookies.txt
+*.cookies.txt

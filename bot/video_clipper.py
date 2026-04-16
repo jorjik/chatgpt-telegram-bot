@@ -148,6 +148,9 @@ def _cleanup(state: ClipperState) -> None:
 
 
 async def start_clips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    uid = update.effective_user.id if update.effective_user else None
+    cid = update.effective_chat.id if update.effective_chat else None
+    logger.info("[/clips] start_clips invoked by user=%s chat=%s", uid, cid)
     missing = ensure_tools_available()
     if missing:
         await update.message.reply_text(
@@ -175,6 +178,7 @@ async def start_clips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 async def on_source_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
+    logger.info("[/clips] on_source_choice data=%r", query.data)
     await query.answer()
     data = query.data
 

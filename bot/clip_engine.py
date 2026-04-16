@@ -11,6 +11,7 @@ import asyncio
 import importlib.util
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -65,8 +66,29 @@ def is_url(source: str) -> bool:
     return bool(_URL_RE.match(source.strip()))
 
 
+_VIDEO_SUFFIXES = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
+
+
 async def download_from_url(url: str, workdir: Path) -> Path:
-    """Download video from URL using yt-dlp. Returns path to saved mp4."""
+    """Download video via cascade: yt-dlp → Cobalt API → pytubefix. First success wins."""
+    errors: list[str] = []
+    for label, fn in (
+        ("yt-dlp", _download_with_yt_dlp),
+        ("cobalt", _download_with_cobalt),
+        ("pytubefix", _download_with_pytubefix),
+    ):
+        try:
+            path = await fn(url, workdir)
+            logger.info("download ok via %s: %s", label, path.name)
+            return path
+        except Exception as e:  # noqa: BLE001
+            msg = str(e).splitlines()[-1][:300] if str(e) else e.__class__.__name__
+            logger.warning("%s failed: %s", label, msg)
+            errors.append(f"{label}: {msg}")
+    raise RuntimeError("All downloaders failed.\n" + "\n".join(errors))
+
+
+async def _download_with_yt_dlp(url: str, workdir: Path) -> Path:
     output_template = str(workdir / "source.%(ext)s")
     cmd = _yt_dlp_cmd() + [
         "--no-playlist",
@@ -75,15 +97,84 @@ async def download_from_url(url: str, workdir: Path) -> Path:
         "bv*[height<=1080]+ba/b[height<=1080]/best",
         "--merge-output-format",
         "mp4",
-        "-o",
-        output_template,
-        url,
+        "--extractor-args",
+        "youtube:player_client=default,android_tv,mweb",
     ]
+    cookies = os.environ.get("YT_DLP_COOKIES", "").strip()
+    if cookies and Path(cookies).is_file():
+        cmd += ["--cookies", cookies]
+    elif cookies:
+        logger.warning("YT_DLP_COOKIES set but file not found: %s", cookies)
+    cmd += ["-o", output_template, url]
     await _run(cmd, "yt-dlp")
+    return _pick_downloaded(workdir, "yt-dlp")
+
+
+async def _download_with_cobalt(url: str, workdir: Path) -> Path:
+    """Cobalt API (https://github.com/imputnet/cobalt). Works without YouTube cookies."""
+    import aiohttp
+
+    api_base = os.environ.get("COBALT_API_URL", "https://api.cobalt.tools/").rstrip("/")
+    payload = {
+        "url": url,
+        "videoQuality": "1080",
+        "filenameStyle": "basic",
+    }
+    timeout = aiohttp.ClientTimeout(total=180)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.post(
+            api_base + "/",
+            json=payload,
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+        ) as r:
+            data = await r.json(content_type=None)
+        status = data.get("status")
+        if status in ("error", "rate-limit"):
+            raise RuntimeError(f"cobalt: {data.get('error', {}).get('code') or data}")
+        if status not in ("tunnel", "redirect", "stream"):
+            raise RuntimeError(f"cobalt: unexpected status {status!r}: {data}")
+        stream_url = data.get("url")
+        if not stream_url:
+            raise RuntimeError(f"cobalt: no url in response: {data}")
+        dest = workdir / "source.mp4"
+        async with session.get(stream_url) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"cobalt stream HTTP {resp.status}")
+            with dest.open("wb") as fh:
+                async for chunk in resp.content.iter_chunked(1 << 16):
+                    fh.write(chunk)
+    if dest.stat().st_size < 1024:
+        raise RuntimeError("cobalt: downloaded file is empty")
+    return dest
+
+
+async def _download_with_pytubefix(url: str, workdir: Path) -> Path:
+    """pytubefix (https://github.com/JuanBindez/pytubefix). YouTube-only."""
+    if "youtube.com" not in url and "youtu.be" not in url:
+        raise RuntimeError("pytubefix only supports YouTube")
+    from pytubefix import YouTube
+
+    def _run_blocking() -> Path:
+        yt = YouTube(url)
+        stream = (
+            yt.streams.filter(progressive=True, file_extension="mp4")
+            .order_by("resolution")
+            .desc()
+            .first()
+        )
+        if stream is None:
+            raise RuntimeError("pytubefix: no progressive mp4 stream found")
+        path = stream.download(output_path=str(workdir), filename="source.mp4")
+        return Path(path)
+
+    return await asyncio.to_thread(_run_blocking)
+
+
+def _pick_downloaded(workdir: Path, label: str) -> Path:
     for candidate in workdir.glob("source.*"):
-        if candidate.suffix.lower() in {".mp4", ".mkv", ".webm", ".mov"}:
+        if candidate.suffix.lower() in _VIDEO_SUFFIXES:
             return candidate
-    raise RuntimeError("yt-dlp finished but no output file was produced")
+    raise RuntimeError(f"{label} finished but no output file was produced")
 
 
 # --- audio extraction & transcription -----------------------------------
