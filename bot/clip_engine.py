@@ -338,10 +338,10 @@ def build_srt(segments: list[Segment]) -> str:
 _FONTS_DIR = Path(__file__).parent / "assets" / "fonts"
 
 SUBTITLE_STYLE = (
-    "FontName=Roboto,FontSize=42,Bold=1,"
+    "FontName=Roboto,FontSize=16,Bold=1,"
     "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
-    "BorderStyle=1,Outline=3,Shadow=1,"
-    "Alignment=2,MarginV=140"
+    "BorderStyle=1,Outline=2,Shadow=1,"
+    "Alignment=2,MarginL=40,MarginR=40,MarginV=60"
 )
 
 
