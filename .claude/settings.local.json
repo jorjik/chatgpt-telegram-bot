@@ -9,7 +9,16 @@
       "Bash(yt-dlp --version)",
       "Bash(ls .env*)",
       "Bash(ls .env.example)",
-      "Bash(pip --version)"
+      "Bash(pip --version)",
+      "Bash(py -3.9 --version)",
+      "Bash(py -3.9 -m venv venv)",
+      "Bash(venv/Scripts/python.exe bot/main.py)",
+      "Bash(venv/Scripts/python.exe -m pip install \"redis<7\")",
+      "Bash(venv/Scripts/python.exe -c \"import tiktoken; print\\('tiktoken ok', tiktoken.__version__\\)\")",
+      "Bash(venv/Scripts/python.exe -m pip install --upgrade --force-reinstall --no-cache-dir \"pydantic-core\" \"pydantic\")",
+      "Bash(venv/Scripts/python.exe -c \"import pydantic; print\\(pydantic.VERSION\\)\")",
+      "Bash(venv/Scripts/python.exe -m pip show anyio)",
+      "Bash(venv/Scripts/python.exe -m pip install \"anyio<4.11\")"
     ]
   }
 }

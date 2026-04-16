@@ -15,3 +15,11 @@ gtts~=2.5.4
 whois~=0.9.27
 Pillow~=11.0.0
 yt-dlp==2025.9.26
+
+# --- Транзитивные зависимости, зажатые для Python 3.9 ---
+# На 3.10+ эти верхние границы можно снять: новые версии используют синтаксис 3.10+
+# (PEP 604 `X | Y`, `match`, `typing.TypeAlias`), недоступный в 3.9.
+redis<7              # используется spotipy; 7.x требует Python 3.10+
+anyio<4.11           # используется openai/httpx/anthropic; 4.11+ требует Python 3.10+
+more-itertools<10    # используется wolframalpha; 10.x требует Python 3.10+
+jaraco.context<6     # используется wolframalpha; 6.x требует Python 3.10+

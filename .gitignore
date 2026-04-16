@@ -7,3 +7,4 @@ venv
 .venv
 /.cache
 /memory
+.claude/settings.local.json
