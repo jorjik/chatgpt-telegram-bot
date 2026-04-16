@@ -50,8 +50,7 @@ SUBS_YES = "__subs_yes__"
 SUBS_NO = "__subs_no__"
 
 PLATFORMS: list[tuple[str, str, int]] = [
-    ("tiktok", "TikTok (30s)", 30),
-    ("reels", "Instagram Reels (30s)", 30),
+    ("tiktok_reels", "TikTok / Instagram Reels (30s)", 30),
     ("shorts", "YouTube Shorts (45s)", 45),
 ]
 
