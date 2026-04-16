@@ -5,7 +5,7 @@ ENV PYTHONFAULTHANDLER=1 \
      PYTHONDONTWRITEBYTECODE=1 \
      PIP_DISABLE_PIP_VERSION_CHECK=on
 
-RUN apk --no-cache add ffmpeg
+RUN apk --no-cache add ffmpeg fontconfig
 
 WORKDIR /app
 COPY . .

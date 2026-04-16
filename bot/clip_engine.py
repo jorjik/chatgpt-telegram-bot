@@ -333,8 +333,12 @@ def build_srt(segments: list[Segment]) -> str:
     return "\n".join(lines)
 
 
+# Bundled font directory — ships with the repo so subtitles work on servers
+# that lack system fonts (Alpine Docker, minimal Debian, Railway nixpacks, etc).
+_FONTS_DIR = Path(__file__).parent / "assets" / "fonts"
+
 SUBTITLE_STYLE = (
-    "FontName=DejaVu Sans,FontSize=42,Bold=1,"
+    "FontName=Roboto,FontSize=42,Bold=1,"
     "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
     "BorderStyle=1,Outline=3,Shadow=1,"
     "Alignment=2,MarginV=140"
@@ -362,8 +366,13 @@ async def render_clip(
     if burn_subtitles and clip_segments:
         srt_path = workdir / f"{output_path.stem}.srt"
         srt_path.write_text(build_srt(clip_segments), encoding="utf-8")
-        escaped = _escape_ffmpeg_filter_path(str(srt_path))
-        vf_parts.append(f"subtitles='{escaped}':force_style='{SUBTITLE_STYLE}'")
+        escaped_srt = _escape_ffmpeg_filter_path(str(srt_path))
+        escaped_fontsdir = _escape_ffmpeg_filter_path(str(_FONTS_DIR))
+        vf_parts.append(
+            f"subtitles='{escaped_srt}'"
+            f":fontsdir='{escaped_fontsdir}'"
+            f":force_style='{SUBTITLE_STYLE}'"
+        )
 
     vf = ",".join(vf_parts)
 
