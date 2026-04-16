@@ -35,7 +35,9 @@ install_packages() {
     apt-get update -qq
     apt-get install -y -qq \
         git ffmpeg curl ca-certificates \
+        fonts-dejavu-core fontconfig \
         python3 python3-venv python3-pip
+    fc-cache -f >/dev/null 2>&1 || true
 }
 
 check_python() {

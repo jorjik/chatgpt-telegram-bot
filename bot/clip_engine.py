@@ -334,9 +334,10 @@ def build_srt(segments: list[Segment]) -> str:
 
 
 SUBTITLE_STYLE = (
-    "FontName=Arial,FontSize=14,PrimaryColour=&H00FFFFFF,"
-    "OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,"
-    "Alignment=2,MarginV=60"
+    "FontName=DejaVu Sans,FontSize=42,Bold=1,"
+    "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+    "BorderStyle=1,Outline=3,Shadow=1,"
+    "Alignment=2,MarginV=140"
 )
 
 
